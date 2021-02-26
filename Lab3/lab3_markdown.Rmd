@@ -1,0 +1,114 @@
+---
+title: "LAB3 markdown"
+output: pdf_document
+---
+
+```{r, echo = FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rmarkdown)
+
+
+# Libraries
+
+library(tidyverse)
+library(magrittr)
+library(dplyr)
+library(lubridate)
+
+
+
+exploration = read_csv("https://jmaurit.github.io/analytics/labs/data/wellbore_exploration_last_10_years.csv")
+exploration["wlbCompletionDate"] =as.Date(exploration$wlbCompletionDate, format = "%d.%m.%Y")
+
+exploration["wlbEntryDate"] =as.Date(exploration$wlbEntryDate, format = "%d.%m.%Y")
+exploration %>%group_by(wlbPurpose, wlbContent) %>% summarize(n())
+exploration["year"] = year(exploration$wlbEntryDate)
+exp_per_year = exploration %>% group_by(year) %>% summarize(n())
+colnames(exp_per_year)[2] = "number_wells"
+
+AS_data = read.csv("https://jmaurit.github.io/analytics/labs/data/accounting_cleanData.csv", stringsAsFactors=FALSE)
+
+AS_data["year"] = as.numeric(AS_data$year)
+company = read_csv("https://jmaurit.github.io/analytics/labs/data/company.csv")
+company["Orgnr"] = as.numeric(company$Orgnr)
+AS_merged = company %>% select(Orgnr, NPD_id, LongName, ShortName) %>% inner_join(AS_data, by = c("Orgnr"="comp_id"))
+licence = read_csv("http://jmaurit.github.io/analytics/labs/data/licence.csv")
+colnames(licence) = c("prlName", "ValidFrom", "ValidTo", "LongName",      
+                      "licenseeInterest", "licenseeSdfi",         
+                      "operValidFrom", "operDateValidTo",      
+                      "NpdidLicence", "cmpNpdidCompany",         
+                      "LicenseeDateUpdated", "DatesyncNPD")
+licence["ValidFrom"]  = as.Date(licence$ValidFrom, format="%d.%m.%Y")
+licence["ValidTo"]  = as.Date(licence$ValidTo, format="%d.%m.%Y")
+licence[is.na(licence$ValidTo),"ValidTo"] = as.Date("2020-01-01")
+expl_lic = exploration %>% 
+  left_join(licence, by = c("wlbProductionLicence" = "prlName")) %>%
+  filter(wlbEntryDate >= ValidFrom, wlbEntryDate < ValidTo)
+expl_oper = expl_lic %>% filter(wlbDrillingOperator==LongName)
+colnames(expl_oper)[22] = "NPD_id"
+expl_AS = expl_oper %>% inner_join(AS_merged, by=c("NPD_id", "year"))
+compWells = expl_oper %>% group_by(NPD_id, year) %>% summarise(n())
+
+colnames(compWells)[3] = "numbWells"
+explAgg_AS = compWells %>% inner_join(AS_merged, by=c("NPD_id", "year"))
+explAgg_AS %>% ggplot(aes(x=total_assets,y=numbWells)) +
+  geom_point() +
+  geom_smooth(method="lm")
+
+explAgg_AS %>% ggplot(aes(x=year, y=numbWells, color=factor(NPD_id))) +
+  geom_line(show.legend=FALSE) 
+
+
+
+```
+
+<h2> Assignment 3 </h2>
+
+<h3> 1 </h3>
+
+```{r, echo = TRUE}
+library(arsenal)
+expl_AS_full_join = expl_oper %>% left_join(AS_merged, by=c("NPD_id", "year"))
+
+diff_dataset <- comparedf(expl_AS_full_join, expl_AS)
+
+summary(diff_dataset)
+#n_diffs <- diffs(expl_AS_full_join, expl_AS)
+
+
+
+
+
+```
+
+
+<h3> 2 </h3>
+
+```{r, echo = TRUE}
+
+
+
+brent_spotprices <- read.csv("Europe_Brent_Spot_Price_FOB.csv") %>% 
+  tail(., -4) %>%
+  mutate(year = as.numeric(rownames(brent_spotprices)),
+         Europe.Brent.Spot.Price.FOB = as.numeric(Europe.Brent.Spot.Price.FOB)) %>%
+  rename(spot_price = Europe.Brent.Spot.Price.FOB) 
+
+
+explAGG_spot <- explAgg_AS %>% inner_join(brent_spotprices, by = c("year"))
+
+explAGG_spot %>% group_by(spot_price) %>%
+  summarise(total_n_wells = sum(numbWells)) %>%
+  ggplot(aes(x= spot_price, y= total_n_wells)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs
+
+
+
+```
+
+<h3> 3 </h3>
+
+
+
