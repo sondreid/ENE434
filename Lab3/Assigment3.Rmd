@@ -66,7 +66,7 @@ explAgg_AS %>% ggplot(aes(x=year, y=numbWells, color=factor(NPD_id))) +
 
 ```
 
-#Assignment 3 
+
 
 ## Task 1 
 
@@ -92,7 +92,7 @@ The loss of data appears random and this may limit the extent of the problems ca
 
 ## TASK 2
 
-We run a linear regression of
+We plot a simple linear regression of the total exploratory wells against the spot price at the time of the wells completion.
 ```{r, echo = TRUE}
 
 
@@ -116,8 +116,17 @@ explAGG_spot %>% group_by(spot_price) %>%
   ylab("Total wells")
 
 
+```
+
+```{r, echo = TRUE}
+
+
+spotprice_regression <- lm(formula = numbWells ~ spot_price, data = explAGG_spot)
+summary(spotprice_regression)
 
 ```
+
+
 
 ## TASK 3
 
