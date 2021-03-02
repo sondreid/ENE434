@@ -73,22 +73,27 @@ explAgg_AS %>% ggplot(aes(x=year, y=numbWells, color=factor(NPD_id))) +
 The following code is used to extract the difference between the left join of the company data (AS_merged) and the exploration data (expl_oper)  
 
 ```{r, echo = TRUE}
-library(arsenal)
+
+
 expl_AS_left_join <- expl_oper %>% left_join(AS_merged, by=c("NPD_id", "year"))
 
-diff_set <- setdiff(expl_AS_left_join, expl_AS)
+diff_set <- setdiff(expl_AS_left_join, expl_AS) %>% filter(is.na(municipality))
 
 nrow(diff_set)
 
 ```
+
+
 ### Why were they dropped? 
 The diference is observed by taking the difference of a inner join of the variables NPD_id and year, and a left join of the same variables.
 93 observations thus appear in the exploratory dataset that does not occur in the company dataset For a left join / merge between two rows to be made both the NPD_id and year much find an equal pairing in the other data set.
 
-The loss of data appears random and this may limit the extent of the problems caused by the lacking of data in the company dataset 
-
 
 ### What do they have in common?
+The loss of data appears random and this may limit the extent of the problems caused by the lacking of data in the company dataset.The difference appears to be largely data that is missing in the company data by happenstance. A join based on the exploratory data will thus lead to dropping of all rows where the company dataset does not match in year and NPD_id.
+
+
+
 
 ## TASK 2
 
@@ -107,8 +112,10 @@ brent_spotprices %<>%
 
 explAGG_spot <- explAgg_AS %>% inner_join(brent_spotprices, by = c("year"))
 
-explAGG_spot %>% group_by(spot_price) %>%
-  summarise(total_n_wells = sum(numbWells)) %>%
+reg_spot_data <- explAGG_spot %>% group_by(spot_price) %>%
+  summarise(total_n_wells = sum(numbWells)) 
+
+reg_spot_data %>%
   ggplot(aes(x= spot_price, y= total_n_wells)) +
   geom_point() +
   geom_smooth(method = "lm") +
@@ -117,15 +124,17 @@ explAGG_spot %>% group_by(spot_price) %>%
 
 
 ```
+We conduct a simple linear regression.
+
 
 ```{r, echo = TRUE}
 
 
-spotprice_regression <- lm(formula = numbWells ~ spot_price, data = explAGG_spot)
-summary(spotprice_regression)
+spotprice_regression_total_wells <- lm(formula = total_n_wells ~ spot_price, data = reg_spot_data)
+summary(spotprice_regression_total_wells) 
 
 ```
-
+There seems to be a small, but insignificant correlation between the spot price of brent oil and the total number of exploratory wells. As we can see from the p-values, it is highly likely to be coincidental. It should be said that there are quite few data points, so each deviation have a big impact on the result. 
 
 
 ## TASK 3
@@ -138,32 +147,36 @@ CO2_tax = tibble(
   CO2_tax_NG_krSM3=c(0.49, 0.51, 0.44, 0.45, 0.46, 0.66,.82, 0.84, 0.90, 1, 1, 1.08)
   )
 
-CO2_tax %>% ggplot(aes(x=year, y=CO2_tax_NG_krSM3)) + 
-  geom_line()
-
 
 ```
 
-The exploratory drilling seems to be unaffected by the hike in  the Co2 taxes. Simply plotting the number of exploratory wells against the the increase Co2 tax levels, does not seem to correspond with the rate or time period in which the number of exploratory wells increase 
+The exploratory drilling seems to be unaffected by the hike in  the Co2 taxes. Simply plotting the number of exploratory wells against the the increase Co2 tax levels, does not seem to correspond with the rate or time period in which the number of exploratory wells increase.
 
 ```{r, echo = TRUE}
 ## Run regression tests
 
-num_wells <- left_join(explAGG_spot, CO2_tax, by = "year") 
-num_reg <- lm(numbWells ~ CO2_tax_NG_krSM3, data = num_wells)
+num_wells <- inner_join(explAgg_AS, CO2_tax, by = "year")  %>%
+  group_by(year) %>%
+  summarise(total_number_wells = sum(numbWells),
+            co2_tax = CO2_tax_NG_krSM3) %>%
+  unique()
 
-
+num_reg <- lm(total_number_wells ~ co2_tax, data = num_wells)
 
 
 ## Plot CO2 tax vs exploration
 
-num_wells %>%
-  ggplot(aes(x = year, group = 1)) +
-  geom_smooth(aes(y = numbWells, color = "Number of wells")) +
-  geom_smooth(aes(y = CO2_tax_NG_krSM3, color = "Co2 tax")) +
-  xlab("Years") +
-  ylab("Total wells/ CO2 tax") +
-  labs(colour = "Series")
+num_wells_pivot <- num_wells %>% pivot_longer(cols = c(co2_tax, total_number_wells),
+                                              names_to = "variable",
+                                              values_to = "variable_values")
+
+num_wells_pivot %>%
+  ggplot(aes(x = year, y = variable_values)) +
+  geom_line() +
+  facet_wrap(~ variable, scales = "free_y") +
+  xlab("Year") +
+  ylab("Co2 tax/ Total number of wells")
+
 
 
 ```
@@ -171,21 +184,61 @@ num_wells %>%
 
 
 
-Conducting a simple linear regression tests suggest that the is little correlation betweeen 
+Conducting a simple linear regression tests suggest that the is no statistically significant correlation between tax rate and the total number of exploratory wells.
 
 ```{r, echo = TRUE}
 summary(num_reg)
 ```
 
+However, this lack of correlation may simply be due to time inconsistencies, e.g exploratory drilling requires a lot of planning and a tax hike will only affect future drilling and not the total number of wells in the near future. 
+
 
 
 ## Task 4
 
-The following regression is conducted 
+The following regression is conducted. 
 ```{r, echo = TRUE}
 reg1 = lm(numbWells ~ total_assets + profitability, data=explAgg_AS)
 summary(reg1)
 
 ```
+## A
+The linear regression is composed of two predictor variables: asset size and the profitability of the companies. 
+From the regression printout we can see that the more assets a company has the more exploratory drilling we can expect the company to conduct. 
+The coefficient of total assets can be interpreted as an expectation of nearly three more wells per 100 million NOK kroner. The profitability has a negative coefficient, but this does not imply a negative correlation as it its explanatory power is not significant as determined by the p-value.
 
-Total_assets is more significant than profitability. The R-squared is quite low.
+The R-squared is quite low, this could be improved by adding more predictor variables.
+
+## B 
+The total assets are supplied in different currencies, NOK and USD. The interpretation of the coefficient as well as accuracy of the t-test will be impaired as long as the data is not standardized to one currency. We could not find any documentation as how profitability is measured (e.g in thousands/millions etc). This affects the interpretation of the profitability predictor.
+
+## C
+
+We solve the currency issue by converting all relevant data of our chosen variables to NOK, and  conduct a new regression.
+
+```{r, echo = TRUE}
+
+
+
+explAgg_AS_single_currency <- explAgg_AS %>%
+  mutate(
+         total_assets = case_when(currency_code != "NOK" ~ as.double(total_assets * 8.52), 
+                                  TRUE ~ as.double(total_assets)),
+         total_debt   = case_when(currency_code != "NOK" ~ as.double(total_debt * 8.52),
+                                  TRUE ~ as.double(total_assets)),
+         total_operating_costs   = case_when(currency_code != "NOK" ~ as.double(total_operating_costs * 8.52),
+                                  TRUE ~ as.double(total_operating_costs)),
+         sales_revenue   = case_when(currency_code != "NOK" ~ as.double(sales_revenue * 8.52),
+                                  TRUE ~ as.double(sales_revenue)),
+         currency_code = "NOK")
+
+
+reg2 = lm(numbWells ~ total_debt  + sales_revenue  , data= explAgg_AS_single_currency)
+summary(reg2)
+```
+
+
+
+We exclude total assets from the regression after discovering that its explanatory power is derived in large part from its correlation with total debt. As such total debt explains more of the number of wells expected than total assets of a company. We include the companies sales revenue in our regression model and find it is negative correlation with the number of exploratory wells. This finding is surprising.
+
+
