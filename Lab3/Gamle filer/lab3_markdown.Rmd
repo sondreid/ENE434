@@ -1,0 +1,182 @@
+---
+title: "Assignment 3"
+output: pdf_document
+---
+
+```{r, echo = FALSE, include=FALSE}
+
+######  PREREQUISITE R SCRIPT ######################################
+
+
+knitr::opts_chunk$set(echo = TRUE)
+library(rmarkdown)
+
+
+# Libraries
+
+library(tidyverse)
+library(magrittr)
+library(dplyr)
+library(lubridate)
+
+
+
+exploration = read_csv("https://jmaurit.github.io/analytics/labs/data/wellbore_exploration_last_10_years.csv")
+exploration["wlbCompletionDate"] =as.Date(exploration$wlbCompletionDate, format = "%d.%m.%Y")
+
+exploration["wlbEntryDate"] =as.Date(exploration$wlbEntryDate, format = "%d.%m.%Y")
+exploration %>%group_by(wlbPurpose, wlbContent) %>% summarize(n())
+exploration["year"] = year(exploration$wlbEntryDate)
+exp_per_year = exploration %>% group_by(year) %>% summarize(n())
+colnames(exp_per_year)[2] = "number_wells"
+
+AS_data = read.csv("https://jmaurit.github.io/analytics/labs/data/accounting_cleanData.csv", stringsAsFactors=FALSE)
+
+AS_data["year"] = as.numeric(AS_data$year)
+company = read_csv("https://jmaurit.github.io/analytics/labs/data/company.csv")
+company["Orgnr"] = as.numeric(company$Orgnr)
+AS_merged = company %>% select(Orgnr, NPD_id, LongName, ShortName) %>% inner_join(AS_data, by = c("Orgnr"="comp_id"))
+licence = read_csv("http://jmaurit.github.io/analytics/labs/data/licence.csv")
+colnames(licence) = c("prlName", "ValidFrom", "ValidTo", "LongName",      
+                      "licenseeInterest", "licenseeSdfi",         
+                      "operValidFrom", "operDateValidTo",      
+                      "NpdidLicence", "cmpNpdidCompany",         
+                      "LicenseeDateUpdated", "DatesyncNPD")
+licence["ValidFrom"]  = as.Date(licence$ValidFrom, format="%d.%m.%Y")
+licence["ValidTo"]  = as.Date(licence$ValidTo, format="%d.%m.%Y")
+licence[is.na(licence$ValidTo),"ValidTo"] = as.Date("2020-01-01")
+expl_lic = exploration %>% 
+  left_join(licence, by = c("wlbProductionLicence" = "prlName")) %>%
+  filter(wlbEntryDate >= ValidFrom, wlbEntryDate < ValidTo)
+expl_oper = expl_lic %>% filter(wlbDrillingOperator==LongName)
+colnames(expl_oper)[22] = "NPD_id"
+expl_AS = expl_oper %>% inner_join(AS_merged, by=c("NPD_id", "year"))
+compWells = expl_oper %>% group_by(NPD_id, year) %>% summarise(n())
+
+colnames(compWells)[3] = "numbWells"
+explAgg_AS = compWells %>% inner_join(AS_merged, by=c("NPD_id", "year"))
+explAgg_AS %>% ggplot(aes(x=total_assets,y=numbWells)) +
+  geom_point() +
+  geom_smooth(method="lm")
+
+explAgg_AS %>% ggplot(aes(x=year, y=numbWells, color=factor(NPD_id))) +
+  geom_line(show.legend=FALSE) 
+
+
+
+```
+
+#Assignment 3 
+
+## Task 1 
+
+The following code is used to extract the difference between the left join of the company data (AS_merged) and the exploration data (expl_oper)  
+
+```{r, echo = TRUE}
+library(arsenal)
+expl_AS_left_join <- expl_oper %>% left_join(AS_merged, by=c("NPD_id", "year"))
+
+diff_set <- setdiff(expl_AS_left_join, expl_AS)
+
+nrow(diff_set)
+
+```
+### Why were they dropped? 
+The diference is observed by taking the difference of a inner join of the variables NPD_id and year, and a left join of the same variables.
+93 observations thus appear in the exploratory dataset that does not occur in the company dataset For a left join / merge between two rows to be made both the NPD_id and year much find an equal pairing in the other data set.
+
+The loss of data appears random and this may limit the extent of the problems caused by the lacking of data in the company dataset 
+
+
+### What do they have in common?
+
+## TASK 2
+
+We run a linear regression of
+```{r, echo = TRUE}
+
+
+
+brent_spotprices <- read.csv("Europe_Brent_Spot_Price_FOB.csv") %>% tail(., -4)
+
+brent_spotprices %<>% 
+  mutate(year = as.numeric(rownames(brent_spotprices)),
+         Europe.Brent.Spot.Price.FOB = as.numeric(Europe.Brent.Spot.Price.FOB)) %>%
+  rename(spot_price = Europe.Brent.Spot.Price.FOB) 
+
+
+explAGG_spot <- explAgg_AS %>% inner_join(brent_spotprices, by = c("year"))
+
+explAGG_spot %>% group_by(spot_price) %>%
+  summarise(total_n_wells = sum(numbWells)) %>%
+  ggplot(aes(x= spot_price, y= total_n_wells)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  xlab("Spot prices") +
+  ylab("Total wells")
+
+
+
+```
+
+## TASK 3
+
+
+Overview of the CO2 taxes in the period 2009-2020. 
+```{r, echo = TRUE}
+CO2_tax = tibble(
+  year=2009:2020,
+  CO2_tax_NG_krSM3=c(0.49, 0.51, 0.44, 0.45, 0.46, 0.66,.82, 0.84, 0.90, 1, 1, 1.08)
+  )
+
+CO2_tax %>% ggplot(aes(x=year, y=CO2_tax_NG_krSM3)) + 
+  geom_line()
+
+
+```
+
+The exploratory drilling seems to be unaffected by the hike in  the Co2 taxes. Simply plotting the number of exploratory wells against the the increase Co2 tax levels, does not seem to correspond with the rate or time period in which the number of exploratory wells increase 
+
+```{r, echo = TRUE}
+## Run regression tests
+
+num_wells <- left_join(explAGG_spot, CO2_tax, by = "year") 
+num_reg <- lm(numbWells ~ CO2_tax_NG_krSM3, data = num_wells)
+
+
+
+
+## Plot CO2 tax vs exploration
+
+num_wells %>%
+  ggplot(aes(x = year, group = 1)) +
+  geom_smooth(aes(y = numbWells, color = "Number of wells")) +
+  geom_smooth(aes(y = CO2_tax_NG_krSM3, color = "Co2 tax")) +
+  xlab("Years") +
+  ylab("Total wells/ CO2 tax") +
+  labs(colour = "Series")
+
+
+```
+
+
+
+
+Conducting a simple linear regression tests suggest that the is little correlation betweeen 
+
+```{r, echo = TRUE}
+summary(num_reg)
+```
+
+
+
+## Task 4
+
+The following regression is conducted 
+```{r, echo = TRUE}
+reg1 = lm(numbWells ~ total_assets + profitability, data=explAgg_AS)
+summary(reg1)
+
+```
+
+Total_assets is more significant than profitability. The R-squared is quite low.

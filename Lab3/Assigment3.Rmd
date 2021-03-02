@@ -1,5 +1,5 @@
 ---
-title: "LAB3 markdown"
+title: "Assignment 3"
 output: pdf_document
 ---
 
@@ -66,27 +66,33 @@ explAgg_AS %>% ggplot(aes(x=year, y=numbWells, color=factor(NPD_id))) +
 
 ```
 
-<h1> Assignment 3 </h1>
+#Assignment 3 
 
-<h3> 1 </h3>
+## Task 1 
 
-<p> The following code is used to extract the difference between the left join of the company data (AS_merged) and the exploration data (expl_oper) </p>
+The following code is used to extract the difference between the left join of the company data (AS_merged) and the exploration data (expl_oper)  
 
 ```{r, echo = TRUE}
 library(arsenal)
 expl_AS_left_join <- expl_oper %>% left_join(AS_merged, by=c("NPD_id", "year"))
 
-diff_set <- setdiff(expl_AS_full_join, expl_AS)
+diff_set <- setdiff(expl_AS_left_join, expl_AS)
 
 nrow(diff_set)
 
 ```
-<p> The diference is observed by taking the difference of a inner join of the variables NPD_id and year, and a left join of the same variables.
-93 observations thus appear in the exploratory dataset that does not occur in the company dataset</p>
+### Why were they dropped? 
+The diference is observed by taking the difference of a inner join of the variables NPD_id and year, and a left join of the same variables.
+93 observations thus appear in the exploratory dataset that does not occur in the company dataset For a left join / merge between two rows to be made both the NPD_id and year much find an equal pairing in the other data set.
+
+The loss of data appears random and this may limit the extent of the problems caused by the lacking of data in the company dataset 
 
 
-<h3> 2 </h3>
+### What do they have in common?
 
+## TASK 2
+
+We run a linear regression of
 ```{r, echo = TRUE}
 
 
@@ -113,8 +119,10 @@ explAGG_spot %>% group_by(spot_price) %>%
 
 ```
 
-<h3> 3 </h3>
+## TASK 3
 
+
+Overview of the CO2 taxes in the period 2009-2020. 
 ```{r, echo = TRUE}
 CO2_tax = tibble(
   year=2009:2020,
@@ -125,6 +133,11 @@ CO2_tax %>% ggplot(aes(x=year, y=CO2_tax_NG_krSM3)) +
   geom_line()
 
 
+```
+
+The exploratory drilling seems to be unaffected by the hike in  the Co2 taxes. Simply plotting the number of exploratory wells against the the increase Co2 tax levels, does not seem to correspond with the rate or time period in which the number of exploratory wells increase 
+
+```{r, echo = TRUE}
 ## Run regression tests
 
 num_wells <- left_join(explAGG_spot, CO2_tax, by = "year") 
@@ -147,9 +160,9 @@ num_wells %>%
 ```
 
 
-<p> The exploratory drilling seems to be unaffected by the hike in  the Co2 taxes. Simply plotting the number of exploratory wells against the the increase Co2 tax levels, does not seem to correspond with the rate or time period in which the number of exploratory wells increase </p>
 
-<p> Conducting a simple linear regression tests suggest that the is little correlation betweeen </p>
+
+Conducting a simple linear regression tests suggest that the is little correlation betweeen 
 
 ```{r, echo = TRUE}
 summary(num_reg)
@@ -157,11 +170,13 @@ summary(num_reg)
 
 
 
-<h3> 4 </h3>
+## Task 4
 
-<p> 
+The following regression is conducted 
 ```{r, echo = TRUE}
 reg1 = lm(numbWells ~ total_assets + profitability, data=explAgg_AS)
 summary(reg1)
 
 ```
+
+Total_assets is more significant than profitability. The R-squared is quite low.
