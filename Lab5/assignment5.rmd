@@ -205,18 +205,14 @@ fit_cons_dk %>%  accuracy()  %>%
 
 
 # Autocorrelation tests
-ljung_box(
+
+fit_cons_dk  %>% 
+     augment()  %>% dplyr::filter(.model == "arima_101111")
+feasts::ljung_box(
   (fit_cons_dk  %>% 
      augment()  %>% dplyr::filter(.model == "arima_101111"))$.innov) # Passing
 
-# Residuals of manually selected ARIMA model
-fit_arima_manual <- fit_cons_dk  %>%  filter(.model == "arima_101111")
-Residuals <- residuals(fit_arima_manual)$.resid
-ggtsdisplay(Residuals, 
-            plot.type = "histogram", 
-            lag.max = 30, 
-            theme = theme_bw(),
-            main = "Residuals of manual ARIMA model")
+
 
 ```
 Perhaps the most notable weakness of such a model is its weekly sesaonality. It would be interesting to tweak the model with longer seasonality, as a week may be too small
@@ -230,41 +226,87 @@ Another weakness is that some information useful for forecasting may be found in
 
 ## Task 2: 
 
+We retrieve finnish electricity price data from Nordpool and clean them. 
 
 ```{r, echo = TRUE, include = TRUE}
 
+elspot_data <- read_csv("elspot-prices_2019_daily_nok.csv") # Load data
 
-library(readxl)
-library(xlsx)
-elspot_data <- read_csv("elspot-prices_2019_daily_nok.csv")
-elspo
-#Residual plot
-   #elspot-prices_2019_daily_nok
+colnames(elspot_data) <- elspot_data[2,]
+elspot_data <- elspot_data[3:nrow(elspot_data),]
+colnames(elspot_data)[1] <- "date"
 
+elspot_data  %<>% 
+    mutate(date = lubridate::dmy(date),
+           FI = as.numeric(gsub(",", ".", FI)))  %>%  #Substitute commas
+    select(date, FI)  %>% 
+    as_tsibble(index = date)
+
+#Plot of finnish electricity prices and ACF/PACF plots
+forecast::ggtsdisplay(elspot_data$FI, plot_type='partial',
+                      lag.max = 24, 
+                      theme = theme_bw(),
+                      main = "Finnish electricity prices in 2019 NOK mwh") 
+
+```
+
+We find the conditional variance of the series by calculating the residuals after an ARIMA model (in our case an ARIMA(1,1) model). 
+By subtracting the original values with with the fitted values of this ARIMA model, we end up with the "return residuals". 
+
+```{r, echo = TRUE, include = TRUE}
+
+fi_garch <- garchFit(~arma(1,1) + garch(1,1), data = elspot_data$FI, trace = F)
+summary(fi_garch)
 
 
 ```
 
+We note the signifiance of the alpha and gamma parameters, and our time series variance appears to be conditional on previous variance.
 
+
+We model the conditonal volatility of the time series, and note that there are several significant spikes in volatility of electricity prices. For instance around the months May, June, and October. 
 ```{r, echo = TRUE, include = TRUE}
 
-## ARCH approach
 
-
-
-fit_dk_arch1 =  cons_ts %>%  model(
-    arima100100 = ARIMA(DK ~ 0 + pdq(1,0,0) + PDQ(1,0,0))
-  )
-
-fit_dk_arch1 %>% report()
-
-fit_resids <- fit_dk_arch1 %>% residuals()
-fit_resids  %<>% mutate(residuals_squared = .resid^2)
-
-
-fit_dk_arch_resids =  fit_resids %>%  model(
-    arima100100 = ARIMA(residuals_squared ~ 0 + pdq(1,0,0) + PDQ(1,0,0))
-  )
-
+elspot_data  %<>% mutate(volatility = fi_garch@h.t)
+elspot_data  %>% 
+    ggplot() + 
+    geom_line(aes(y = volatility, x = date))  +
+    labs(title = "GARCH modeled volatility: Finnish electricity prices",
+         y = "Consumption", 
+         x = "Day") +
+     scale_colour_manual(values = c("black", "orange"))
 
 ```
+
+
+Using our model we forecast 30 days ahead with prediction intervals. 
+```{r, echo = TRUE, include = TRUE}
+fc_garch = predict(fi_garch, n.ahead = 30)
+fc_garch["date"] = seq(as.Date("2020-01-01"), as.Date("2020-01-01")+29, by = "days")
+
+elspot_data  %>% 
+  ggplot() +
+  geom_line(aes(x = date, y = FI, color = "Conditional variance")) +
+  geom_line(aes(x = date, y = meanForecast, color = "Forecast"), data =  fc_garch) +
+  geom_ribbon(aes(x=date, ymin=(meanForecast-2*standardDeviation), ymax=(meanForecast+2*standardDeviation)), data = fc_garch, fill="orange", alpha=.2) +
+  scale_colour_manual(values = c("black", "orange")) +
+  labs(title = "GARCH modeled volatility: Finnish electricity prices",
+         y = "Conditonal variance", 
+         x = "Day",
+         colour = "Series") 
+
+```
+
+
+
+## Task 3
+
+The inclusion of additional independent variables in a forecasting model may be helpful if they provide additional causal information to the model.
+The amount of rain has a significant and causal relation to power prices in Norway, as the availability of rain increases the supply of hydroelectric power. 
+As such, it  is plausible that such a multivariate model of rain amount and previous power prices may yield a better result than a univariate model based on power prices.
+Causality ensures future stability, as previous correlations may disappear going forward in time. 
+As causality may be very hard to determine, including a variable may contribute more noise than information for a forecasting model.
+
+
+The future is uncertain, and addingindependent variables may only be prudent if it contributes significant information.
