@@ -6,10 +6,9 @@ output: pdf_document
 ```{r, echo = FALSE, include=FALSE}
 
 ##### Load libraries ######
-
-
 library(tidyverse)
 library(fpp3)
+library(kableExtra)
 library(fGarch)
 library(lubridate)
 library(magrittr)
@@ -43,7 +42,6 @@ ets_mon = ets_mon %>% arrange(year, month)
 
 ets_mon = ets_mon %>% mutate(date = make_date(year, month, day))
 
-
 ## Convert to monthly data
 ets %<>% 
   mutate(month = month(date)) %>% 
@@ -66,13 +64,6 @@ power_DK_df %<>% mutate(DK1 = DK1/1000,
                         DK2 = DK2/1000)
 
 
-
-####### Stationarity tests ####
-
-dk_power_ts <- power_DK_df %>% mutate(date = yearmonth(date)) %>%  as_tsibble(index = date)
-
-
-
 ## Daily consumption data
 cons = read_csv2("http://jmaurit.github.io/analytics/labs/data/consumption-per-country_2019_daily.csv")
 cons["date"] = as.Date(cons$date, format="%d/%m/%Y")
@@ -82,22 +73,41 @@ cons_ts <- tsibble(cons, index=date)
 ```
 
 
-## Assignment 1: Comparison of variance of consumption data in Norway and Denmark
+## Task 1: Comparison of consumption data in Norway and Denmark
+
+
+We start our comparison of norwegian and danish power consumption by looking at the STL decompositon plots.
+
 
 ```{r, echo = TRUE}
-
 ## Seasonal decompositon of Danish electricity consumption
 
 cons_comp_dk = cons_ts %>% model(
   STL(DK ~ trend(window=7) + season(window="periodic"))
 ) %>% components 
 
+cons_comp_no = cons_ts %>% model(
+  STL(NO ~ trend(window=7) + season(window="periodic"))
+) %>% components 
+
+
 cons_comp_dk %>%  autoplot()
 
+cons_comp_no %>%  autoplot()
+
 ```
+From the components we can see the same general trend of winter increase, and corresponding the decrease in power consumption in the summer months.
+Where they differ is the magnitude of the weekly-sesaonal component. In Denmark the weekend effect of reduced power consumption is more noticable.
 
+Another small difference is the effect of winter, where it appears that the winter-increase in power consumption is larger in Norway than Denmark.
 
-A clear assumption in an ARIMA forecasting model is the that the data is stationary in terms of its variance and mean. We plot the time series containing electricity consumption data, as well its autocorrelation and partial autocorrelation plots. We see clear signs of non-stationarity and perform unit root tests confirming the need for first order differencing. We lose some information contained in the data by performing a differencing, but we conform the the assumption of stationarity of the data.
+### Forecasting using a seasonal ARIMA model
+
+A clear assumption in an ARIMA forecasting model is the that the data is stationary in terms of its variance and mean. We plot the time series containing electricity consumption data, as well its autocorrelation and partial autocorrelation plots. 
+We see clear signs of non-stationarity and perform unit root tests confirming the need for differencing. 
+As there appears to be a strong seasonal autocorrelation, we will first conduct a seasonal differencing, and see if this solves our non-stationarity issue.
+If not, further differencing will be needed. 
+Some information contained in the data is lost by performing a differencing, but we conform the the assumption of stationarity of the data.
 
 
 ```{r, echo = TRUE, include = TRUE}
@@ -106,10 +116,149 @@ forecast::ggtsdisplay(cons$DK, plot_type='partial',
                       theme = theme_bw(),
                       main = "Elecitricity consumption in Denmark ACF and PACF plots ") 
 
-
 unitroot_kpss(cons$DK)
 adf.test(cons$DK)
+
+```
+
+
+We perform a first order differencing and perform the same stationarity analysis.
+```{r, echo = TRUE, include = TRUE}
+
+# Perform differencing
+
+cons_diff_dk <- cons %>% mutate(DK = difference(DK,7)) %>% dplyr::filter(!is.na(DK)) #Take first order difference
+
+unitroot_kpss(cons_diff_dk$DK)
+adf.test(cons_diff_dk$DK) #Stationary
+
+
+# New ACF and PACF plots
+
+forecast::ggtsdisplay(cons_diff_dk$DK, plot_type='partial',
+                      lag.max = 24, 
+                      theme = theme_bw(),
+                      main = "Elecitricity consumption in Denmark (difference) ACF and PACF plots ") 
 
 
 ```
 
+We note that there are significant autocorrelations at the weekly lag (i.e 7, 14). Luckily the fable package correctly identified the seasonality as weekly, e.g an ARIMA PDQ pdq[7], regardless of the specific terms. 
+
+We will now perform two forecasts, a manually specified ARIMA model and an automatically determined ARIMA model made by the fable ARIMA() function.
+In the PACF plot we can see a clear autocorrelation in seasonal lag terms, in a decreasing fashion. This calls for an MA(1) term to applied to the seasonal component of the ARIMA model. 
+There is a significant but decreasing correlation at lag 1  as shown in the PACF plot, and an AR(1) term applied to the non-seasonal component is appropiate. 
+As the lags are decreasing after 1, and MA(1) term might also be necessary. 
+
+A such we might reason that our model might something like:
+      ARIMA pdq(1,0,1) pdq(1,1,1)
+
+```{r, echo = TRUE, include = TRUE}
+
+
+fit_arima_optimal_cons_dk <- 
+  cons %>% 
+  as_tsibble(index = date) %>%  
+  model(arima_optimal =  ARIMA(DK, stepwise = FALSE, approximation = FALSE))
+
+
+fit_arima_manual_cons_dk <- cons %>% as_tsibble(index = date) %>%  
+  model(arima_101111       = ARIMA(DK ~ 0 + pdq(1,0,1) + PDQ(1,1,1)))
+
+fit_cons_dk  <-  fit_arima_manual_cons_dk  %>% bind_cols(fit_arima_optimal_cons_dk)
+
+
+```
+
+In the plot below we have used our manually selected model to forecast danish power consumption for a time horizon of 30 days.
+
+```{r, echo = TRUE, include = TRUE}
+#Forecast for h = 30
+fc_cons_dk <-  fit_cons_dk %>% forecast(h = 30)
+
+
+fc_cons_dk  %>% ggplot() +
+  geom_line(aes(x = date, y = .mean, color = .model)) +
+  geom_line(aes(x  = date, y = DK), data = cons) +
+  theme_bw()   +  
+   labs(title = "Forecasting of danish power consumption",
+         y = "Consumption", 
+         x = "Day") 
+
+```
+
+
+
+
+As we can see our manually selected model slightly outperforms the optimally selected model based on AIC.
+The Ljung Box reveals that there is no residual autocorrelation and as such much of the error term is explained in our model.
+
+```{r, echo = TRUE, include = TRUE}
+
+# Forecast evaluation
+
+fit_cons_dk %>%  accuracy()  %>%   
+  rename("Model" = .model) %>% 
+  kbl(caption = "Training data performance metrics: Danish power consumption") %>%
+  kable_classic(full_width = F, html_font = "Times new roman")
+
+
+# Autocorrelation tests
+ljung_box(
+  (fit_cons_dk  %>% 
+     augment()  %>% dplyr::filter(.model == "arima_101111"))$.innov) # Passing
+
+# Residuals of manually selected ARIMA model
+fit_arima_manual <- fit_cons_dk  %>%  filter(.model == "arima_101111")
+Residuals <- residuals(fit_arima_manual)$.resid
+ggtsdisplay(Residuals, 
+            plot.type = "histogram", 
+            lag.max = 30, 
+            theme = theme_bw(),
+            main = "Residuals of manual ARIMA model")
+
+```
+Perhaps the most notable weakness of such a model is its weekly sesaonality. It would be interesting to tweak the model with longer seasonality, as a week may be too small
+a period to capture the winter/summer differences in consumption. 
+
+Another weakness is that some information useful for forecasting may be found in other variables, and as a result a multivariate model should also be tested. 
+
+
+
+
+
+## Task 2: 
+
+
+```{r, echo = TRUE, include = TRUE}
+
+#Residual plot
+   #elspot-prices_2019_daily_nok
+
+
+
+```
+
+
+```{r, echo = TRUE, include = TRUE}
+
+## ARCH approach
+
+
+
+fit_dk_arch1 =  cons_ts %>%  model(
+    arima100100 = ARIMA(DK ~ 0 + pdq(1,0,0) + PDQ(1,0,0))
+  )
+
+fit_dk_arch1 %>% report()
+
+fit_resids <- fit_dk_arch1 %>% residuals()
+fit_resids  %<>% mutate(residuals_squared = .resid^2)
+
+
+fit_dk_arch_resids =  fit_resids %>%  model(
+    arima100100 = ARIMA(residuals_squared ~ 0 + pdq(1,0,0) + PDQ(1,0,0))
+  )
+
+
+```
