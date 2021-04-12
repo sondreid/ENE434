@@ -10,6 +10,7 @@ output: pdf_document
 
 library(tidyverse)
 library(fpp3)
+library(fGarch)
 library(lubridate)
 library(magrittr)
 library(forecast)
@@ -137,6 +138,61 @@ cons_ts %>%
   gg_tsdisplay(difference(NO, 7), plot_type='partial') 
 
 
+sfit1 <- cons_ts %>%
+  model(
+    arima101011 = ARIMA(NO ~ 0 + pdq(1,0,1) + PDQ(0,1,1)),
+    auto = ARIMA(NO)
+  )
+
+sfit1 %>% select(arima101011)%>%  report()
+sfit1 %>% select(auto)%>%  report()
+sfit1 %>%  select(auto) %>%  forecast(h=120) %>% autoplot(cons_ts)
+cons_ts =  cons_ts %>% mutate(
+   returns = log(NO) %>% difference(7)
+ )
+
+ 
+cons_ts %>% autoplot(returns)
+cons_ts = cons_ts %>% filter(!is.na(returns))
+
+arch_mod1 = cons_ts %>%
+  model(
+    arima100100 = ARIMA(returns ~ 0 + pdq(1,0,0) + PDQ(1,0,0))
+  )
+
+arch_mod1 %>% report()
+#create the
+resids = arch_mod1 %>% residuals()
+
+resids = resids %>% mutate(
+  res_sq = .resid^2
+)
+
+#modell for squared-residuals
+arch_reg = resids %>%
+  model(
+    arima100 = ARIMA(res_sq ~ 0 + pdq(1,0,0) + PDQ(0,0,0))
+  )
+
+arch_reg %>% report()
+cons_ts = cons_ts %>% dplyr::filter(!is.na(returns))
+#cons_ts = as_tsibble(cons_ts, index=date)
+
+garchMod1 = garchFit(~arma(1,1) + garch(1,1), data = cons_ts["returns"], trace = F)
+summary(garchMod1)
+cons_ts["volatility"] =garchMod1@h.t
+ggplot(cons_ts, aes(y = volatility, x = date)) + geom_line(col = '#ff9933') + ylab('Conditional Variance') + xlab('Date')
+predict1 = predict(garchMod1, 120)
+predict1["date"] = seq(as.Date("2020-01-01"), as.Date("2020-01-01")+119, by="days")
+cons_fcst = cons_ts %>% full_join(predict1, by="date")
+
+cons_fcst["date"] = as.Date(cons_fcst$date)
+cons_fcst %>% 
+  ggplot() + 
+  geom_line(aes(x=date, y=returns)) +
+  geom_line(aes(x=date, y=meanForecast, color="red")) +
+  geom_ribbon(aes(x=date, ymin=(meanForecast-2*standardDeviation), ymax=(meanForecast+2*standardDeviation) ), fill="blue", alpha=.2)
+
 ```
 
 
@@ -152,9 +208,6 @@ cons_comp_dk = cons_ts %>% model(
 
 cons_comp_dk %>%  autoplot()
 
-##Norwegian decomposition
-cons_ts %>% autoplot(NO_sa)
-
 ```
 
 
@@ -162,9 +215,13 @@ cons_ts %>% autoplot(NO_sa)
 forecast::ggtsdisplay(cons$DK, plot_type='partial',
             lag.max = 24, 
             theme = theme_bw(),
-            main = "Norwegian ") 
+            main = "Elecitricity consumption in Denmark ACF and PACF plots ") 
+
+
+unitroot_kpss(cons$DK)
+adf.test(cons$DK)
 
 
 ```
-
+A clear assumption in an ARIMA forecasting model is the that the data is stationary in terms of its variance and mean. We plot the time series containing electricity consumption data, as well its autocorrelation and partial autocorrelation plots. We see clear signs of non-stationarity and perform unit root tests confirming the need for first order differencing. We lose some information contained in the data by performing a differencing, but we conform the the assumption of stationarity of the data.
 

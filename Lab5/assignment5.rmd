@@ -1,0 +1,115 @@
+---
+title: "Assignment 5"
+output: pdf_document
+---
+  
+```{r, echo = FALSE, include=FALSE}
+
+##### Load libraries ######
+
+
+library(tidyverse)
+library(fpp3)
+library(fGarch)
+library(lubridate)
+library(magrittr)
+library(forecast)
+library(dynlm)
+library(fable)
+library(tseries)
+
+```
+
+
+
+```{r, echo = FALSE, include=FALSE}
+
+### Data retrieval ##
+
+ets = read_csv("http://jmaurit.github.io/analytics/labs/data/eua-price.csv") ## Carbon pricing data
+colnames(ets) = c("date", "price")                                                # Change rownames
+elspot = read_csv("http://jmaurit.github.io/norwayeconomy/data_series/elspot.csv") ##
+
+
+ets["month"] = month(ets$date)
+ets["year"] = year(ets$date)
+
+ets_mon = ets %>% group_by(month, year) %>% summarise(
+  price = mean(price))
+
+ets_mon["day"] = 1
+
+ets_mon = ets_mon %>% arrange(year, month)
+
+ets_mon = ets_mon %>% mutate(date = make_date(year, month, day))
+
+
+## Convert to monthly data
+ets %<>% 
+  mutate(month = month(date)) %>% 
+  group_by(month) %>% 
+  summarise(ets_mon = mean(price),
+            year = year(date),
+            month = month,
+            day  = 1) %>%  
+  ungroup() %>% 
+  mutate(date = make_date(year, month, day ))
+
+
+# Join carbon pricing data and 
+power_df <- elspot %>% inner_join(ets_mon[c("price", "date")], by="date")
+power_DK_df <- power_df %>% dplyr:: select(DK1, DK2, date, price)
+
+
+## Scale to mwh
+power_DK_df %<>% mutate(DK1 = DK1/1000,
+                        DK2 = DK2/1000)
+
+
+
+####### Stationarity tests ####
+
+dk_power_ts <- power_DK_df %>% mutate(date = yearmonth(date)) %>%  as_tsibble(index = date)
+
+
+
+## Daily consumption data
+cons = read_csv2("http://jmaurit.github.io/analytics/labs/data/consumption-per-country_2019_daily.csv")
+cons["date"] = as.Date(cons$date, format="%d/%m/%Y")
+cons_ts <- tsibble(cons, index=date)
+
+
+```
+
+
+## Assignment 1: Comparison of variance of consumption data in Norway and Denmark
+
+```{r, echo = TRUE}
+
+## Seasonal decompositon of Danish electricity consumption
+
+cons_comp_dk = cons_ts %>% model(
+  STL(DK ~ trend(window=7) + season(window="periodic"))
+) %>% components 
+
+cons_comp_dk %>%  autoplot()
+
+```
+
+
+A clear assumption in an ARIMA forecasting model is the that the data is stationary in terms of its variance and mean. We plot the time series containing electricity consumption data, as well its autocorrelation and partial autocorrelation plots. We see clear signs of non-stationarity and perform unit root tests confirming the need for first order differencing. We lose some information contained in the data by performing a differencing, but we conform the the assumption of stationarity of the data.
+
+
+```{r, echo = TRUE, include = TRUE}
+forecast::ggtsdisplay(cons$DK, plot_type='partial',
+                      lag.max = 24, 
+                      theme = theme_bw(),
+                      main = "Elecitricity consumption in Denmark ACF and PACF plots ") 
+
+
+unitroot_kpss(cons$DK)
+adf.test(cons$DK)
+
+
+```
+
