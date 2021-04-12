@@ -11,6 +11,7 @@ library(fpp3)
 library(kableExtra)
 library(fGarch)
 library(lubridate)
+library(readxl)
 library(magrittr)
 library(forecast)
 library(dynlm)
@@ -232,6 +233,11 @@ Another weakness is that some information useful for forecasting may be found in
 
 ```{r, echo = TRUE, include = TRUE}
 
+
+library(readxl)
+library(xlsx)
+elspot_data <- read_csv("elspot-prices_2019_daily_nok.csv")
+elspo
 #Residual plot
    #elspot-prices_2019_daily_nok
 
