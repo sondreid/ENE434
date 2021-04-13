@@ -21,7 +21,6 @@ library(tseries)
 ```
 
 
-
 ```{r, echo = FALSE, include=FALSE}
 
 ### Data retrieval ##
@@ -64,12 +63,10 @@ power_DK_df <- power_df %>% dplyr:: select(DK1, DK2, date, price)
 power_DK_df %<>% mutate(DK1 = DK1/1000,
                         DK2 = DK2/1000)
 
-
 ## Daily consumption data
 cons = read_csv2("http://jmaurit.github.io/analytics/labs/data/consumption-per-country_2019_daily.csv")
 cons["date"] = as.Date(cons$date, format="%d/%m/%Y")
 cons_ts <- tsibble(cons, index=date)
-
 
 ```
 
@@ -97,21 +94,23 @@ cons_comp_dk %>%  autoplot()
 cons_comp_no %>%  autoplot()
 
 ```
-From the components we can see the same general trend of winter increase, and corresponding the decrease in power consumption in the summer months.
-Where they differ is the magnitude of the weekly-sesaonal component. In Denmark the weekend effect of reduced power consumption is more noticable.
+From the components plot we can see the same general trend of winter increase, and the corresponding  decrease in power consumption in the summer months.
+This difference in summer/winter months however, appears to be larger in Norway than Denmark, with higher consumption in the winter relative to Denmark.
+Another difference is the magnitude of the weekly-sesaonal component: In Denmark the weekend effect of reduced power consumption is more noticable.
 
-Another small difference is the effect of winter, where it appears that the winter-increase in power consumption is larger in Norway than Denmark.
+
 
 ### Forecasting using a seasonal ARIMA model
 
-A clear assumption in an ARIMA forecasting model is the that the data is stationary in terms of its variance and mean. We plot the time series containing electricity consumption data, as well its autocorrelation and partial autocorrelation plots. 
+A clear assumption in an ARIMA forecasting model is the that the data is stationary in terms of its variance and mean. 
+We plot the time series containing electricity consumption data, as well its autocorrelation and partial autocorrelation plots. 
 We see clear signs of non-stationarity and perform unit root tests confirming the need for differencing. 
 As there appears to be a strong seasonal autocorrelation, we will first conduct a seasonal differencing, and see if this solves our non-stationarity issue.
 If not, further differencing will be needed. 
 Some information contained in the data is lost by performing a differencing, but we conform the the assumption of stationarity of the data.
 
 
-```{r, echo = TRUE, include = TRUE}
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
 forecast::ggtsdisplay(cons$DK, plot_type='partial',
                       lag.max = 24, 
                       theme = theme_bw(),
@@ -124,7 +123,7 @@ adf.test(cons$DK)
 
 
 We perform a first order differencing and perform the same stationarity analysis.
-```{r, echo = TRUE, include = TRUE}
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
 # Perform differencing
 
@@ -144,17 +143,19 @@ forecast::ggtsdisplay(cons_diff_dk$DK, plot_type='partial',
 
 ```
 
-We note that there are significant autocorrelations at the weekly lag (i.e 7, 14). Luckily the fable package correctly identified the seasonality as weekly, e.g an ARIMA PDQ pdq[7], regardless of the specific terms. 
+We note that there are significant autocorrelations at the weekly lag (i.e 7, 14). Luckily, the fable package correctly identified the seasonality as weekly, e.g an ARIMA PDQ pdq[7], regardless of the specific terms. 
 
 We will now perform two forecasts, a manually specified ARIMA model and an automatically determined ARIMA model made by the fable ARIMA() function.
 In the PACF plot we can see a clear autocorrelation in seasonal lag terms, in a decreasing fashion. This calls for an MA(1) term to applied to the seasonal component of the ARIMA model. 
 There is a significant but decreasing correlation at lag 1  as shown in the PACF plot, and an AR(1) term applied to the non-seasonal component is appropiate. 
 As the lags are decreasing after 1, and MA(1) term might also be necessary. 
 
-A such we might reason that our model might something like:
+A such we might reason that our model might look something like:
       ARIMA pdq(1,0,1) pdq(1,1,1)
 
-```{r, echo = TRUE, include = TRUE}
+We will compare this model to an AIC_c optimized model made by the fable package.
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
 
 fit_arima_optimal_cons_dk <- 
@@ -173,11 +174,11 @@ fit_cons_dk  <-  fit_arima_manual_cons_dk  %>% bind_cols(fit_arima_optimal_cons_
 
 In the plot below we have used our manually selected model to forecast danish power consumption for a time horizon of 30 days.
 
-```{r, echo = TRUE, include = TRUE}
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
 #Forecast for h = 30
 fc_cons_dk <-  fit_cons_dk %>% forecast(h = 30)
 
-
+# Plot forecast
 fc_cons_dk  %>% ggplot() +
   geom_line(aes(x = date, y = .mean, color = .model)) +
   geom_line(aes(x  = date, y = DK), data = cons) +
@@ -192,9 +193,9 @@ fc_cons_dk  %>% ggplot() +
 
 
 As we can see our manually selected model slightly outperforms the optimally selected model based on AIC.
-The Ljung Box reveals that there is no residual autocorrelation and as such much of the error term is explained in our model.
+The Ljung Box test reveals that there is no residual autocorrelation and as such much of the error term is explained in our model.
 
-```{r, echo = TRUE, include = TRUE}
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
 # Forecast evaluation
 
@@ -206,8 +207,7 @@ fit_cons_dk %>%  accuracy()  %>%
 
 # Autocorrelation tests
 
-fit_cons_dk  %>% 
-     augment()  %>% dplyr::filter(.model == "arima_101111")
+
 feasts::ljung_box(
   (fit_cons_dk  %>% 
      augment()  %>% dplyr::filter(.model == "arima_101111"))$.innov) # Passing
@@ -228,7 +228,7 @@ Another weakness is that some information useful for forecasting may be found in
 
 We retrieve finnish electricity price data from Nordpool and clean them. 
 
-```{r, echo = TRUE, include = TRUE}
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
 elspot_data <- read_csv("elspot-prices_2019_daily_nok.csv") # Load data
 
@@ -249,11 +249,10 @@ forecast::ggtsdisplay(elspot_data$FI, plot_type='partial',
                       main = "Finnish electricity prices in 2019 NOK mwh") 
 
 ```
-
 We find the conditional variance of the series by calculating the residuals after an ARIMA model (in our case an ARIMA(1,1) model). 
 By subtracting the original values with with the fitted values of this ARIMA model, we end up with the "return residuals". 
 
-```{r, echo = TRUE, include = TRUE}
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
 fi_garch <- garchFit(~arma(1,1) + garch(1,1), data = elspot_data$FI, trace = F)
 summary(fi_garch)
@@ -267,7 +266,6 @@ We note the signifiance of the alpha and gamma parameters, and our time series v
 We model the conditonal volatility of the time series, and note that there are several significant spikes in volatility of electricity prices. For instance around the months May, June, and October. 
 ```{r, echo = TRUE, include = TRUE}
 
-
 elspot_data  %<>% mutate(volatility = fi_garch@h.t)
 elspot_data  %>% 
     ggplot() + 
@@ -279,8 +277,23 @@ elspot_data  %>%
 
 ```
 
+We note that the residuals show autocorrelation but not enough to reject the ljung box null hypothesis of white noise residuals.
+Furthermore the residuals appears to be normally distributed.
+```{r, echo = TRUE, include = TRUE}
 
-Using our model we forecast 30 days ahead with prediction intervals. 
+
+forecast::ggtsdisplay(fi_garch@residuals, 
+                      plot.type="histogram",
+                      lag.max = 40, 
+                      theme = theme_bw(),
+                      main = "Residuals of GARCH model") 
+
+ljung_box(fi_garch@residuals)
+
+
+```
+
+Using our GARCH model we forecast 30 days ahead with prediction intervals. 
 ```{r, echo = TRUE, include = TRUE}
 fc_garch = predict(fi_garch, n.ahead = 30)
 fc_garch["date"] = seq(as.Date("2020-01-01"), as.Date("2020-01-01")+29, by = "days")
@@ -297,7 +310,10 @@ elspot_data  %>%
          colour = "Series") 
 
 ```
+An ARCH model assumes symmetric shocks on volatility, and this may not be the case for the electricity market. Furthermore volatility,
+ by its nature has sudden increases and decreases and this makes forecasting difficult. This may lead the forecast to "underfit" the actual future observations.
 
+The advantage of such a model, is that given no residuals error (such as a non-normal distribution) we can trust the prediction intervals to at least give us a pinpoint of future volatility.
 
 
 ## Task 3
@@ -309,4 +325,4 @@ Causality ensures future stability, as previous correlations may disappear going
 As causality may be very hard to determine, including a variable may contribute more noise than information for a forecasting model.
 
 
-The future is uncertain, and addingindependent variables may only be prudent if it contributes significant information.
+The future is uncertain, and adding independent variables may only be prudent if it contributes significant information.
