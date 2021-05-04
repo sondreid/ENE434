@@ -1,0 +1,48 @@
+---
+title: "Lab 7 /Assignment 3 "
+output: pdf_document
+---
+  
+
+```{r, echo = FALSE, include=FALSE}
+
+### Libraries
+library(tidyverse)
+library(lubridate)
+library(magrittr)
+library(ggmap)
+library(splines)
+
+pv_df= read_csv("http://jmaurit.github.io/analytics/labs/data/pv_df.csv")
+
+
+capacity = pv_df %>% arrange(desc(date)) %>% group_by(date) %>% summarise(
+  newCapacity = sum(nameplate)
+)
+capacity["cumCapacity"] = cumsum(capacity$newCapacity)
+
+
+# Learning curves
+
+pv_df = pv_df %>% arrange(date) %>% mutate(
+  cum_cap = cumsum(nameplate)
+)
+
+
+pv_df = pv_df %>% filter(cost_per_kw!=0)
+
+pv_df["log2_cum_cap"] = log2(pv_df$cum_cap)
+pv_df["log2_cost_per_kw"] = log2(pv_df$cost_per_kw)
+
+
+```
+
+## Task 1 
+
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+
+
+
+
+```
