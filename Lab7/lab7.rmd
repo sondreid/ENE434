@@ -16,33 +16,85 @@ library(splines)
 pv_df= read_csv("http://jmaurit.github.io/analytics/labs/data/pv_df.csv")
 
 
-capacity = pv_df %>% arrange(desc(date)) %>% group_by(date) %>% summarise(
-  newCapacity = sum(nameplate)
-)
-capacity["cumCapacity"] = cumsum(capacity$newCapacity)
+```
 
 
-# Learning curves
+## Task 1
 
-pv_df = pv_df %>% arrange(date) %>% mutate(
+
+Seperating pre and post 2012 data.
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+df_pre_2012 = pv_df %>%  filter(year < 2012)
+df_post_2012 = pv_df %>% filter(year >= 2012)
+
+```
+
+
+Creating the variable cum_cap, which calculates the cumulative sum of nameplate.
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+df_pre_2012 = df_pre_2012 %>% arrange(date) %>% mutate(
   cum_cap = cumsum(nameplate)
 )
 
+df_post_2012 = df_post_2012 %>% arrange(date) %>% mutate(
+  cum_cap = cumsum(nameplate)
+)
+```
 
-pv_df = pv_df %>% filter(cost_per_kw!=0)
 
-pv_df["log2_cum_cap"] = log2(pv_df$cum_cap)
-pv_df["log2_cost_per_kw"] = log2(pv_df$cost_per_kw)
-
+Removing zero values
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+df_pre_2012 = df_pre_2012 %>% filter(cost_per_kw != 0)
+df_post_2012 = df_post_2012 %>% filter(cost_per_kw != 0)
 
 ```
 
-## Task 1 
 
+Creating the variables *log2_cum_cap* and *log2_cost_per_kw* 
 
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
+df_pre_2012["log2_cum_cap"] = log2(df_pre_2012$cum_cap)
+df_pre_2012["log2_cost_per_kw"] = log2(df_pre_2012$cost_per_kw)
 
+df_post_2012["log2_cum_cap"] = log2(df_post_2012$cum_cap)
+df_post_2012["log2_cost_per_kw"] = log2(df_post_2012$cost_per_kw)
+```
 
+Linear models pre and post 2012. 
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+learning_mod_pre = lm(log2_cost_per_kw~log2_cum_cap, data = df_pre_2012)
+summary(learning_mod_pre)
+
+learning_mod_post = lm(log2_cost_per_kw~log2_cum_cap, data = df_post_2012)
+summary(learning_mod_post)
 
 
 ```
+
+
+After splitting and calculating the log base 2 of the cumulative solar capacity and solar cost, we plot the fitted 
+values of the linear regression with the observed values.
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+df_pre_2012  %>% filter(year < 2012)  %>%  ggplot(aes(x = log2_cum_cap, y = log2_cost_per_kw)) +
+  geom_point(alpha=.5, color = "black") +
+  geom_smooth(method = "lm", color = "orange") +
+  labs(title = "Linear learning curve: -2012 data", 
+       x     = "Log base 2 cumulative solar capacity",
+       y     = "Log base 2 cost per kw electricity generated") +
+  theme_bw()
+
+
+df_post_2012  %>% filter(year > 2012) %>%  ggplot(aes(x = log2_cum_cap, y = log2_cost_per_kw)) +
+  geom_point(alpha=.5, color = "black") +
+  geom_smooth(method = "lm", color = "orange") +
+  labs(title = "Linear learning curve: 2012- data", 
+       x     = "Log base 2 cumulative solar capacity",
+       y     = "Log base 2 cost per kw electricity generated") +
+  theme_bw() 
+
+```
+
+
+## Task 2
