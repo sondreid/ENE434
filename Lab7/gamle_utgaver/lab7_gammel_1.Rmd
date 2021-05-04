@@ -1,0 +1,13 @@
+
+
+
+loess_fc <- predict(loess_fit, n.ahead = 1825)
+pv_df_log  %>%  mutate(loess = loess_fc)  %>% 
+  ggplot(aes(log2_cum_cap, log2_cost_per_kw)) +
+  geom_point(color = "orange", alpha = 0.2) + 
+  geom_line(aes(y = loess, color = "black"))
+
+pv_df_log  %>%  mutate(loess = loess_fc)  %>% 
+  ggplot(aes(log2_cum_cap, log2_cost_per_kw)) +
+  geom_point(color = "orange", alpha = 0.2) + 
+  geom_line(aes(y = loess, color = "black"))

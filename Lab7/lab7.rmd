@@ -13,7 +13,31 @@ library(magrittr)
 library(splines)
 
 pv_df= read_csv("http://jmaurit.github.io/analytics/labs/data/pv_df.csv")
-pv_df %<>% mutate(cum_cap =cumsum(nameplate))  %>%  filter(cost_per_kw !=0)
+
+pv_df = pv_df %>% arrange(date) %>% mutate(
+  cum_cap = cumsum(nameplate)
+)
+pv_df %<>% mutate(log2_cum_cap = log2(cum_cap),
+                 log2_cost_per_kw = log2(cost_per_kw),
+                 monthdate =  as.Date(paste(pv_df$year, pv_df$month, "1",sep = "-")))  %>%  
+                 filter(cost_per_kw !=0)
+
+######### Models from the lab ###############
+ 
+
+# Linear model
+cap_mod = lm(log2_cum_cap ~ monthdate, data=pv_df) 
+new_data = tibble(
+  monthdate = seq(ymd("2015-01-01"), ymd("2019-12-31"), by="months")
+)
+
+new_data["log2_cum_cap"] = predict(cap_mod, newdata=new_data)
+
+pv_df %>% ggplot(aes(x=monthdate, y=cum_cap)) +
+  geom_line() + 
+  geom_line(aes(x=monthdate, y=2^log2_cum_cap), data=new_data, color="red")
+
+
 
 ```
 
@@ -112,9 +136,9 @@ For this task we will explore the relationship between cumulative capacity and s
 
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
-pv_df_log <- df_pre_2012  %>%  bind_rows(df_post_2012)
+pv_df <- df_pre_2012  %>%  bind_rows(df_post_2012)
 
-loess_fit <-   pv_df %>% loess(log2(cost_per_kw)~log2(cum_cap), span=.2, data = ., control=loess.control(surface="direct"))
+loess_fit <-   pv_df %>% loess(log2_cost_per_kw~log2_cum_cap, span=.2, data = ., control=loess.control(surface="direct"))
 ```
 
 
@@ -131,7 +155,7 @@ pv_df_log <- pv_df %>%
 
 
 
-ggplot(pv_df_log, aes(log2_cum_cap, log2_cost_per_kw)) + 
+ggplot(pv_df, aes(log2_cum_cap, log2_cost_per_kw)) + 
 geom_point() +
 geom_smooth(method = "loess", se = FALSE)
 
@@ -146,40 +170,33 @@ that they are a set of regressions conducted on different parts of the dataset.
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
 
-pv_df_month <- pv_df_log  %>% group_by(monthdate)  %>% summarise(log2_cost_per_kw = sum(log2_cost_per_kw))  %>% as_tibble()
+pv_df_month <- pv_df  %>% group_by(monthdate)  %>% summarise(log2_cost_per_kw = sum(log2_cost_per_kw))  %>% as_tibble()
 
-loess_fit <- loess(log2_cost_per_kw~monthdate, span=.2, data = pv_df_month, control=loess.control(surface="direct"))
-
-new_data = tibble(
+loess_fit <-   pv_df %>% loess(log2_cost_per_kw~log2_cum_cap, span=.2, data = ., control=loess.control(surface="direct"))
+new_data_fc_loess = tibble(
   monthdate = seq(ymd("2015-01-01"), ymd("2019-12-31"), by="months")
 )
 
-```
+new_data_fc_loess["log2_cum_cap"] = predict(cap_mod, newdata = new_data_fc_loess)
+new_data_fc_loess["fc_cost"] = predict(loess_fit, newdata = new_data_fc_loess)
+
+fc_loess_interval <- predict(loess_fit, newdata = new_data_fc_loess, interval="prediction")
+#new_data_fc_loess["lwr"] = fc_loess_interval[,2]
+#new_data_fc_loess["upr"] = fc_loess_interval[,3]
 
 
-```{r, echo = TRUE, include = TRUE, warning = FALSE}
-
-new_data["log2_cost_pred"] = predict(loess_fit, newdata = new_data)
-
-interval=predict(loess_fit, newdata = new_data, interval="prediction")
-new_data["lwr"] = interval[,2]
-new_data["upr"] = interval[,3]
+autoplot(new_data_fc_loess %>% as_tsibble(index = monthdate))
 
 
-#new_data  %>% mutate("log2_cum_cap" =  predict(loess_fit, newdata=new_data, interval="prediction"))
-#new_data["log2_cum_cap"] = predict(loess_fit, newdata=new_data, interval="prediction")
-
-
-
-pv_df %>% ggplot(aes(x=monthdate, y=2^log2_cost_pred)) +
-geom_line() +
-geom_ribbon(aes(ymin=2^lwr, ymax=2^upr), alpha=.5, fill="grey") + 
-theme_bw()
-
-
-
+new_data_fc_loess   %>% 
+   ggplot() +
+   geom_line(aes(x = monthdate, y = fc_cost, col = "black")) +
+   #geom_ribbon(aes(ymin=2^lwr, ymax=2^upr), alpha=.5, fill="grey") + 
+   theme_bw() +
+   labs(x = "Months")
 
 ```
+
 
 
 # Task 3
@@ -188,8 +205,14 @@ Loading the updated dataset from the **California Solar Initative**, the CSI Wor
 
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
-updated_df <- read_csv("WorkingDataSet.csv")
+updated_df <- read_csv("lab7_data/WorkingDataSet_5-28-2020.csv")
 
+```
+
+## Liing Goodness-of-fitear model
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
 
 ```
+
+## 
