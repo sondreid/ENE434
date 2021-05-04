@@ -10,17 +10,22 @@ output: pdf_document
 library(tidyverse)
 library(lubridate)
 library(magrittr)
-library(ggmap)
 library(splines)
 
 pv_df= read_csv("http://jmaurit.github.io/analytics/labs/data/pv_df.csv")
-
+pv_df %<>% mutate(cum_cap =cumsum(nameplate))  %>%  filter(cost_per_kw !=0)
 
 ```
 
 
 ## Task 1
 
+We interpret this task in the following way:
+For two seperate intervals of time (before 2012, and 2012 onwards), make linear learning curves determined
+by the fitted values of a simple linear regression of the log base 2 of the cumulative solar capacity and solar price.
+
+Note that we include 2012 in the 'post' data as we found that the dataset stops at 2014. An exclusion of 2012 would have affected the results substantially,
+as there would have been too few datapoints to get a proper result.  
 
 Seperating pre and post 2012 data.
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
@@ -60,7 +65,8 @@ df_post_2012["log2_cum_cap"] = log2(df_post_2012$cum_cap)
 df_post_2012["log2_cost_per_kw"] = log2(df_post_2012$cost_per_kw)
 ```
 
-Linear models pre and post 2012. 
+Signficance tests show that the capacity has a statistical signifcant correlation with the solar price.
+As we will see later, plotting the regression with observed data confirms this.  
 
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 learning_mod_pre = lm(log2_cost_per_kw~log2_cum_cap, data = df_pre_2012)
@@ -68,8 +74,6 @@ summary(learning_mod_pre)
 
 learning_mod_post = lm(log2_cost_per_kw~log2_cum_cap, data = df_post_2012)
 summary(learning_mod_post)
-
-
 ```
 
 
@@ -95,6 +99,97 @@ df_post_2012  %>% filter(year > 2012) %>%  ggplot(aes(x = log2_cum_cap, y = log2
   theme_bw() 
 
 ```
+By using simple linear regression we avoid overfitting, as higher-order polynomials might incurr. While, our estimates does not overfit, 
+we do in all likelihood suffer from signifcant bias as we assume a linear relationship between the cumulative solar capacity and solar price.
+In reality, a linear relationship is very unlikely and as a result a linear model will give poor predictive performance.
+
+We do not however, capture large amount of the information present within the data. 
+As we can see from the plots above, there is signifcant variation and this variation will only be accounted for to a small extent. 
 
 
 ## Task 2
+For this task we will explore the relationship between cumulative capacity and solar cost using Local Linear Regression.
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+
+pv_df_log <- df_pre_2012  %>%  bind_rows(df_post_2012)
+
+loess_fit <-   pv_df %>% loess(log2(cost_per_kw)~log2(cum_cap), span=.2, data = ., control=loess.control(surface="direct"))
+```
+
+
+# Plot fitted values and groups
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+
+pv_df_log <- pv_df %>% 
+                mutate(log2_cost_per_kw = log2(cost_per_kw),
+                      log2_cum_cap = log2(cum_cap),
+                      monthdate =  as.Date(paste(pv_df$year, pv_df$month, "1",sep = "-")))  %>% 
+                filter(!is.na(cost_per_kw))  %>% 
+                filter(!is.na(monthdate))
+
+
+
+ggplot(pv_df_log, aes(log2_cum_cap, log2_cost_per_kw)) + 
+geom_point() +
+geom_smooth(method = "loess", se = FALSE)
+
+```
+
+Local linear regression is different from splines in that a set amount of data points is used for each regression.
+The regressions are made by a local group of data poins, rather than a set amoun of knots. The methods are similar in
+that they are a set of regressions conducted on different parts of the dataset.
+
+
+# Point forecasts
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+
+
+pv_df_month <- pv_df_log  %>% group_by(monthdate)  %>% summarise(log2_cost_per_kw = sum(log2_cost_per_kw))  %>% as_tibble()
+
+loess_fit <- loess(log2_cost_per_kw~monthdate, span=.2, data = pv_df_month, control=loess.control(surface="direct"))
+
+new_data = tibble(
+  monthdate = seq(ymd("2015-01-01"), ymd("2019-12-31"), by="months")
+)
+
+```
+
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+
+new_data["log2_cost_pred"] = predict(loess_fit, newdata = new_data)
+
+interval=predict(loess_fit, newdata = new_data, interval="prediction")
+new_data["lwr"] = interval[,2]
+new_data["upr"] = interval[,3]
+
+
+#new_data  %>% mutate("log2_cum_cap" =  predict(loess_fit, newdata=new_data, interval="prediction"))
+#new_data["log2_cum_cap"] = predict(loess_fit, newdata=new_data, interval="prediction")
+
+
+
+pv_df %>% ggplot(aes(x=monthdate, y=2^log2_cost_pred)) +
+geom_line() +
+geom_ribbon(aes(ymin=2^lwr, ymax=2^upr), alpha=.5, fill="grey") + 
+theme_bw()
+
+
+
+
+```
+
+
+# Task 3
+
+Loading the updated dataset from the **California Solar Initative**, the CSI Working Dataset.
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+
+updated_df <- read_csv("WorkingDataSet.csv")
+
+
+
+```
