@@ -24,9 +24,7 @@ pv_df %<>% mutate(log2_cum_cap = log2(cum_cap),
                  monthdate =  as.Date(paste(pv_df$year, pv_df$month, "1",sep = "-")))  %>%  
                  filter(cost_per_kw !=0)
 
-# Save pv_df
-#save(pv_df, file = "pv_df.Rdata")
-#load("pv_df.Rdata")
+
 ######### Models from the lab ###############
  
 
@@ -131,6 +129,7 @@ df_post_2012  %>% filter(year > 2012) %>%  ggplot(aes(x = log2_cum_cap, y = log2
   theme_bw() 
 
 ```
+
 By using simple linear regression we avoid overfitting, as higher-order polynomials might incurr. While, our estimates does not overfit, 
 we do in all likelihood suffer from signifcant bias as we assume a linear relationship between the cumulative solar capacity and solar price.
 In reality, a linear relationship is very unlikely and as a result a linear model will give poor predictive performance.
@@ -143,14 +142,16 @@ As we can see from the plots above, there is signifcant variation and this varia
 For this task we will explore the relationship between cumulative capacity and solar cost using Local Linear Regression.
 
 
-# Plot fitted values and groups
+We model a new estimate of the learning curve using local regression. As we will see, it captures more of the underlying variation 
+in the relationship between solar cost and solar cumulative capacity.
 
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
 pv_df_log <- pv_df %>% 
                 mutate(log2_cost_per_kw = log2(cost_per_kw),
                       log2_cum_cap = log2(cum_cap),
-                      monthdate =  as.Date(paste(pv_df$year, pv_df$month, "1",sep = "-")))  %>% 
+                      monthdate =  as.Date(paste(pv_df$year, 
+                                                 pv_df$month, "1",sep = "-")))  %>% 
                 filter(!is.na(cost_per_kw))  %>% 
                 filter(!is.na(monthdate))
 
@@ -161,22 +162,31 @@ pv_df  %>%
   geom_point() +
   geom_smooth(method = "loess", se = FALSE) +
   labs(title = "Fitted values of Local Regression",
-       x = "Cumulative solar capacity",
-       y = "Solar cost") +
+       x = "Log base 2 cumulative solar capacity",
+       y = "Log base 2 cost per kw electricity generated") +
   theme_bw()
 
 ```
+
+
 
 Local regression is different from splines in that a set amount of data points is used for each regression.
 The regressions are made by a local group of data poins, rather than a set amount of knots. The methods are similar in
 that they are a set of regressions conducted on different parts of the dataset.
 
 
-# Point forecasts
+### Point forecasts
+
+We will now explore whether the improved fit of the local regression model can give a better out-of-sample prediction/forecast.
+Assuming a linear evolution in solar capacity, we populate a new data frame with the forecasts of solar cost.
+
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
 # Mean solar log cost per month
-pv_df_month <- pv_df  %>% group_by(monthdate)  %>% summarise(log2_cost_per_kw = mean(log2_cost_per_kw))  %>% as_tibble()
+pv_df_month <- pv_df  %>% 
+               group_by(monthdate)  %>% 
+               summarise(log2_cost_per_kw = mean(log2_cost_per_kw)) %>% 
+               as_tibble()
 
 # Calculating 
 loess_fit <-   pv_df %>% loess(log2_cost_per_kw~log2_cum_cap, span=.2, data = .
@@ -209,6 +219,11 @@ new_data_fc_loess   %>%
 
 
 ```
+As we can see from the plot above, the forecast seem to exagerate the evolution in solar cost, approaching 0 by 2020.
+This is far from what we actually observe.
+We can see that much of the same problems that we experience using splines, simple and polynomial regression occur.
+The model does not account for the information contained within the observed data, and rather extrapolates a short term tendency in the data.
+This leads to a wild underestimate of actual solar cost.
 
 
 # Task 3
@@ -241,7 +256,7 @@ monthly_costs_updated <- updated_df  %>%
                                                max(ymd("2019-12-31")), by="month")) 
 ```
 
-##  Goodness-of-fit model
+###  Goodness-of-fit model
 
 We create a new test data frame (or tibble) that contains all predicitons of the three models, as well as test data retrieved from the observed data from the CSI data set. 
 
@@ -292,7 +307,7 @@ table_data <- bind_rows(linear_table_data, poly_table_data, spline_table_data)  
 
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
-table_data  %>% kbl(caption = "Prediction accuracy", digits = 3)  %>% 
+table_data  %>% kbl(caption = "Prediction accuracy: Solar cost per kw", digits = 3)  %>% 
                 kable_classic(full_width = F, html_font = "Times new roman")
 
 ```
@@ -306,6 +321,7 @@ We find that the linear model provides the best predicted values.
 
 We will try two predictive models on a new dataset retrieved from Nordpool, the daily power prices of 2020 for the geographic areas in which Nordpool operates.
 We opt to model the power prices of Bergen, and start of by loading and cleaning the data.
+
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
 # Loading new dataset
@@ -347,11 +363,12 @@ fitted_smooth_spline_tibble <- tibble(date = elspot_2020$date, fitted_value = fi
 preds <- predict(fit_smooth_spline, newdata = new_data_smooth_spline)
 
 preds_smooth_spline <- tibble(date = new_data_smooth_spline,
-                              preds = (predict(fit_smooth_spline, newdata = new_data_smooth_spline))$y[1:90])
+                              preds = (predict(fit_smooth_spline, 
+                                       newdata = new_data_smooth_spline))$y[1:90])
 
 ```
 
-Below is a combined plot of the observed power prics in Bergen, the fitted values using the smoothing spline model and its predicted values
+Below is a combined plot of the observed power prices in Bergen, the fitted values using the smoothing spline model and its predicted values
 outside the observed range of data. 
 
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
@@ -359,7 +376,8 @@ preds_smooth_spline   %>%
    ggplot() +
    geom_line(aes(x = date, y = preds, color = "Forecast/predictions")) +
    geom_line(aes(x = date, y = Bergen, color = "Observed prices"), data = elspot_2020) +
-   geom_line(aes(x = date, y = fitted_value, color = "Fitted values"), data = fitted_smooth_spline_tibble) +
+   geom_line(aes(x = date, y = fitted_value, color = "Fitted values"), 
+                                         data = fitted_smooth_spline_tibble) +
    theme_bw() +
    labs(x = "Days",
         y = "Predicted daily power price in Bergen",
@@ -380,27 +398,76 @@ elspot_2021   %>%
    theme_bw() +
    labs(x = "Days",
         y = "Predicted daily power price in Bergen",
-        title = "Actual daily power prices in Bergen (nok/mWh") +
+        title = "Actual daily power prices in Bergen (nok/mWh) in 2021") +
    scale_colour_manual(values = c("#03ecfc")) 
 
 ```
 
 
-## Model 2: Splines
+## Model 2: Piecewise polynomial
+
+Our second model is a polynomial spline model. We determine the knots manually by consulting the observed power prices levels in 2020. As the knots function does not handle date type variables,
+we will use the day number from the start of 2020, as opposed to dates. 
+
+
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 # Introduce day numbers
 
 elspot_2020["day_nr"]  = seq(1,366)
 
-new_data_spline<- tibble(day_nr = seq(1,90))
+new_data_spline <- tibble(day_nr = seq(1,90))
 
-fit_splines_elspot <- lm(Bergen~bs(day_nr, knots = c(1, 50)), data = elspot_2020)
+# Plot of observed power prices 
+elspot_2020   %>% 
+   ggplot() +
+   geom_line(aes(x = day_nr, y = Bergen)) +
+   theme_bw() +
+   labs(x = "Days",
+        y = "Predicted daily power price in Bergen",
+        title = "Actual daily power prices in Bergen (nok/mWh") +
+   scale_colour_manual(values = c("#03ecfc")) 
+
+```
+
+We note the sudden spikes and drops in observed power prices and set the knots to act as cutoff points for new regressions.
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+fit_splines_elspot <- lm(Bergen~bs(day_nr, 
+                                   knots = c(0, 100, 140, 220, 270, 300, 330, 350)), 
+                                   data = elspot_2020)
+
+
+fitted_spline_tibble <- tibble(date = elspot_2020$date, 
+                               fitted_value = fit_splines_elspot$fitted)
 
 preds_splines_elspot <- predict(fit_splines_elspot, newdata = new_data_spline)
 
-preds_smooth_spline <- tibble(date = new_data_spline,
-                              preds = (predict(fit_splines_elspot, newdata = new_data_spline)))
+preds_spline <- tibble(date = seq(ymd("2021-01-01"), ymd("2021-03-31"), by="day"),
+                              preds = preds_splines_elspot)
 
+
+
+preds_spline   %>% 
+   ggplot() +
+   geom_line(aes(x = date, y = preds, color = "Forecast/predictions")) +
+   geom_line(aes(x = date, y = Bergen, color = "Observed prices"), data = elspot_2020) +
+   geom_line(aes(x = date, y = fitted_value, color = "Fitted values"), 
+                          data = fitted_spline_tibble) +
+   theme_bw() +
+   labs(x = "Days",
+        y = "Predicted daily power price in Bergen",
+        title = "Forecast of Bergen power prices (nok/mWh) using piecewise polynomial model") +
+   scale_colour_manual(values = c("black","orange",  "#03ecfc")) 
 
 ```
+
+
+We find that smooth spline (model 1) produces a better fit to the actual data compared to piecewise polynomial (model 2).
+The piecewise polynomial model misses much of the variation that we see in the elspot prices. This is because model 2 is highly dependant on the placement of the knots. 
+A weakness of this model is that we manually set the knots. Depending on the dataset, this may not be a simple task. 
+The difference a variation in knots levels may have, is quite large. We have not explored this, but it may be reasonable to assume that a smooth 
+spline model yields more stable results than a piecewise polynomial model.
+
+The piecewise polynomial model produces arguably a better prediction than the smooth spline model, however neither is fit to produce accurate predictions.
+This is because both of the models do not concider the entire data set when predicting. This leads the prediction to only follow the trend in the final moment of the dataset.
 
