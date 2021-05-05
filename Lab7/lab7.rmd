@@ -22,6 +22,9 @@ pv_df %<>% mutate(log2_cum_cap = log2(cum_cap),
                  monthdate =  as.Date(paste(pv_df$year, pv_df$month, "1",sep = "-")))  %>%  
                  filter(cost_per_kw !=0)
 
+# Save pv_df
+#save(pv_df, file = "pv_df.Rdata")
+load("pv_df.Rdata")
 ######### Models from the lab ###############
  
 
@@ -33,10 +36,13 @@ new_data = tibble(
 
 new_data["log2_cum_cap"] = predict(cap_mod, newdata=new_data)
 
-pv_df %>% ggplot(aes(x=monthdate, y=cum_cap)) +
-  geom_line() + 
-  geom_line(aes(x=monthdate, y=2^log2_cum_cap), data=new_data, color="red")
+learning_mod1 = lm(log2_cost_per_kw~log2_cum_cap, data=pv_df)
 
+#Polynomial model
+learning_mod2 = lm(log2_cost_per_kw~poly(log2_cum_cap,4), data = pv_df)
+
+# Splines 
+learning_mod3 = lm(log2_cost_per_kw~bs(log2_cum_cap, knots=c(7, 10, 13, 16)), data=pv_df)
 
 
 ```
@@ -134,13 +140,6 @@ As we can see from the plots above, there is signifcant variation and this varia
 ## Task 2
 For this task we will explore the relationship between cumulative capacity and solar cost using Local Linear Regression.
 
-```{r, echo = TRUE, include = TRUE, warning = FALSE}
-
-pv_df <- df_pre_2012  %>%  bind_rows(df_post_2012)
-
-loess_fit <-   pv_df %>% loess(log2_cost_per_kw~log2_cum_cap, span=.2, data = ., control=loess.control(surface="direct"))
-```
-
 
 # Plot fitted values and groups
 
@@ -155,48 +154,56 @@ pv_df_log <- pv_df %>%
 
 
 
-ggplot(pv_df, aes(log2_cum_cap, log2_cost_per_kw)) + 
-geom_point() +
-geom_smooth(method = "loess", se = FALSE)
+pv_df  %>% 
+  ggplot(aes(log2_cum_cap, log2_cost_per_kw)) + 
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(title = "Fitted values of Local Regression",
+       x = "Cumulative solar capacity",
+       y = "Solar cost") +
+  theme_bw()
 
 ```
 
-Local linear regression is different from splines in that a set amount of data points is used for each regression.
-The regressions are made by a local group of data poins, rather than a set amoun of knots. The methods are similar in
+Local regression is different from splines in that a set amount of data points is used for each regression.
+The regressions are made by a local group of data poins, rather than a set amount of knots. The methods are similar in
 that they are a set of regressions conducted on different parts of the dataset.
 
 
 # Point forecasts
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 
-
-pv_df_month <- pv_df  %>% group_by(monthdate)  %>% summarise(log2_cost_per_kw = sum(log2_cost_per_kw))  %>% as_tibble()
+# Mean solar log cost per month
+pv_df_month <- pv_df  %>% group_by(monthdate)  %>% summarise(log2_cost_per_kw = mean(log2_cost_per_kw))  %>% as_tibble()
 
 loess_fit <-   pv_df %>% loess(log2_cost_per_kw~log2_cum_cap, span=.2, data = ., control=loess.control(surface="direct"))
+
+# New dates as tibble
 new_data_fc_loess = tibble(
   monthdate = seq(ymd("2015-01-01"), ymd("2019-12-31"), by="months")
 )
 
+# Assuming linear estimate of capacity
 new_data_fc_loess["log2_cum_cap"] = predict(cap_mod, newdata = new_data_fc_loess)
+# Adding local regression predictions of solar cost
 new_data_fc_loess["fc_cost"] = predict(loess_fit, newdata = new_data_fc_loess)
 
-fc_loess_interval <- predict(loess_fit, newdata = new_data_fc_loess, interval="prediction")
-#new_data_fc_loess["lwr"] = fc_loess_interval[,2]
-#new_data_fc_loess["upr"] = fc_loess_interval[,3]
 
-
-autoplot(new_data_fc_loess %>% as_tsibble(index = monthdate))
-
-
+# Plotting forecast of cost
 new_data_fc_loess   %>% 
+   as_tsibble(index = monthdate)  %>% 
+   dplyr::select(fc_cost, monthdate)  %>% 
    ggplot() +
-   geom_line(aes(x = monthdate, y = fc_cost, col = "black")) +
-   #geom_ribbon(aes(ymin=2^lwr, ymax=2^upr), alpha=.5, fill="grey") + 
+   geom_line(aes(x = monthdate, y = fc_cost, col = "Forecast of solar cost")) +
+   geom_point(aes(x = monthdate, y = log2_cost_per_kw, color = "Log base 2 solar cost"), data = pv_df_month) +
    theme_bw() +
-   labs(x = "Months")
+   labs(x = "Months",
+        y = "Solar cost log base 2",
+        title = "Forecast of solar cost (in log base 2)") +
+   scale_colour_manual(values = c("orange", "black")) 
+
 
 ```
-
 
 
 # Task 3
@@ -204,13 +211,17 @@ new_data_fc_loess   %>%
 Loading the updated dataset from the **California Solar Initative**, the CSI Working Dataset.
 
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
-
 updated_df <- read_csv("lab7_data/WorkingDataSet_5-28-2020.csv")
-
 ```
 
-## Liing Goodness-of-fitear model
+##  Goodness-of-fit model
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
+interval = predict(learning_mod1, newdata = new_data, interval = "prediction")
+new_data["log2_cost_pred"] = interval[,1]
+new_data["lwr"] = interval[,2]
+new_data["upr"] = interval[,3]
+
+
 
 
 ```
