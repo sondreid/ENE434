@@ -10,7 +10,9 @@ output: pdf_document
 library(tidyverse)
 library(lubridate)
 library(magrittr)
+library(fpp3)
 library(splines)
+library(kableExtra)
 
 pv_df= read_csv("http://jmaurit.github.io/analytics/labs/data/pv_df.csv")
 
@@ -24,7 +26,7 @@ pv_df %<>% mutate(log2_cum_cap = log2(cum_cap),
 
 # Save pv_df
 #save(pv_df, file = "pv_df.Rdata")
-load("pv_df.Rdata")
+#load("pv_df.Rdata")
 ######### Models from the lab ###############
  
 
@@ -176,7 +178,9 @@ that they are a set of regressions conducted on different parts of the dataset.
 # Mean solar log cost per month
 pv_df_month <- pv_df  %>% group_by(monthdate)  %>% summarise(log2_cost_per_kw = mean(log2_cost_per_kw))  %>% as_tibble()
 
-loess_fit <-   pv_df %>% loess(log2_cost_per_kw~log2_cum_cap, span=.2, data = ., control=loess.control(surface="direct"))
+# Calculating 
+loess_fit <-   pv_df %>% loess(log2_cost_per_kw~log2_cum_cap, span=.2, data = .
+                                , control=loess.control(surface="direct"))
 
 # New dates as tibble
 new_data_fc_loess = tibble(
@@ -195,7 +199,8 @@ new_data_fc_loess   %>%
    dplyr::select(fc_cost, monthdate)  %>% 
    ggplot() +
    geom_line(aes(x = monthdate, y = fc_cost, col = "Forecast of solar cost")) +
-   geom_point(aes(x = monthdate, y = log2_cost_per_kw, color = "Log base 2 solar cost"), data = pv_df_month) +
+   geom_point(aes(x = monthdate, y = log2_cost_per_kw, color = "Log base 2 solar cost"), 
+   data = pv_df_month) +
    theme_bw() +
    labs(x = "Months",
         y = "Solar cost log base 2",
@@ -207,23 +212,98 @@ new_data_fc_loess   %>%
 
 
 # Task 3
+In this Task we will focus on evaluating predictions of solar cost per month in the extended period of 2015-2019. 
 
-Loading the updated dataset from the **California Solar Initative**, the CSI Working Dataset.
+We start of by loading the updated dataset from the **California Solar Initative**, the CSI Working Dataset, and calculating cost per kw and cumulative capacity based on the nameplate ratings of the installed
+solar infrastructure. 
+
 
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
 updated_df <- read_csv("lab7_data/WorkingDataSet_5-28-2020.csv")
+
+updated_df["cost_per_kw"] = updated_df$"Total Cost"/updated_df$"Nameplate Rating"
+updated_df["cum_sum"] = cumsum(updated_df$"Nameplate Rating")
+updated_df["completed_date"] = ymd(updated_df$"First Completed Date")
+
+updated_df <- updated_df %>% filter(cost_per_kw != 0, cum_sum != 0)
+updated_df <- updated_df %>% filter(!is.na(cost_per_kw), !is.na(cum_sum))
+
+updated_df["monthdate"] = ymd(paste(year(updated_df$completed_date), 
+                                    month(updated_df$completed_date), "1",sep = "-"))
+
+updated_df["log2_cost_per_kw"] = log2(updated_df$cost_per_kw)
+updated_df["log2_cum_sum"] = log2(updated_df$cum_sum)
+
+monthly_costs_updated <- updated_df  %>% 
+                 group_by(monthdate)  %>% 
+                 summarise(log2_cost_per_kw = mean(log2_cost_per_kw)) %>%
+                 complete(monthdate = seq.Date(min(ymd("2015-01-01")), 
+                                               max(ymd("2019-12-31")), by="month")) 
 ```
 
 ##  Goodness-of-fit model
+
+We create a new test data frame (or tibble) that contains all predicitons of the three models, as well as test data retrieved from the observed data from the CSI data set. 
+
+Aligning the observed values with the predicted values from the linear, polynomial and spline models.
+Comparing the values from 2015 to 2020. 
 ```{r, echo = TRUE, include = TRUE, warning = FALSE}
-interval = predict(learning_mod1, newdata = new_data, interval = "prediction")
-new_data["log2_cost_pred"] = interval[,1]
-new_data["lwr"] = interval[,2]
-new_data["upr"] = interval[,3]
 
+test_data = tibble(
+  monthdate = seq(ymd("2015-01-01"), ymd("2019-12-31"), by="month")
+)
 
+test_data <- test_data  %>% 
+    mutate(observed_values = (monthly_costs_updated  %>% 
+    filter(year(monthdate) > 2014 & year(monthdate) < 2020))$log2_cost_per_kw,
+           log2_cum_cap    = predict(cap_mod, newdata = test_data))  
 
+test_data <- test_data  %>%    
+    mutate(linear_mod      = predict(learning_mod1, newdata = test_data),
+           poly_mod        = predict(learning_mod2, newdata = test_data),
+           spline_mod      = predict(learning_mod3, newdata = test_data))  %>% 
+    filter(!is.na(observed_values))
 
 ```
 
-## 
+
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+
+
+linear_resids <- test_data$observed_values-test_data$linear_mod
+poly_resids <- test_data$observed_values-test_data$poly_mod
+spline_resids <- test_data$observed_values-test_data$spline_mod
+
+linear_table_data <- bind_cols("Model type" =  "Linear", 
+                                RMSE = RMSE(linear_resids), 
+                                MSE = MSE(linear_resids), 
+                                MAE = MAE(linear_resids))
+poly_table_data <- bind_cols("Model type" =  "Polynomial",
+                              RMSE = RMSE(poly_resids), 
+                              MSE = MSE(poly_resids), MAE = MAE(poly_resids))
+spline_table_data <- bind_cols("Model type" =  "Spline", 
+                              RMSE = RMSE(spline_resids),
+                              MSE = MSE(spline_resids), MAE = MAE(spline_resids))
+
+table_data <- bind_rows(linear_table_data, poly_table_data, spline_table_data)  %>% 
+              arrange(RMSE)
+```
+
+```{r, echo = TRUE, include = TRUE, warning = FALSE}
+
+table_data  %>% kbl(caption = "Prediction accuracy", digits = 3)  %>% 
+                kable_classic(full_width = F, html_font = "Times new roman")
+
+```
+
+
+
+We have compared the predicted values from the linear, polynomial, and spline models with the observed values from CSI Working dataset. The values are from the period 2015 to 2020. 
+We find that the linear model provides the best predicted values.
+
+
+
+
+# Task 4
+
